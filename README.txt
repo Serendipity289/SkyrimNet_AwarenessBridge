@@ -17,7 +17,7 @@ Required (tested Skyrim SE 1.6.1170)
 
 Optional (missing only drops that fact)
   - Loki's Wade in Water (Nexus 42854) or Wade in Water Redone (Nexus 71418)
-  - Looting Animations (Nexus 77377)
+  - Dynamic Looting and Harvesting Animations (Nexus 114547)
   - Extra OStim animation packs (richer mood names/tags)
 
 Not required: SkyUI, OStimNet, CHIM, a sequences pack.
