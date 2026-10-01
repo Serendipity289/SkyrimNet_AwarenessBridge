@@ -16,7 +16,7 @@ Required (tested Skyrim SE 1.6.1170)
   - PapyrusUtil SE (Nexus 13048; needed by OTracker 2.x)
 
 Optional (missing only drops that fact)
-  - Wade in Water / Wade in Water Redone (Nexus 35357)
+  - Loki's Wade in Water (Nexus 42854) or Wade in Water Redone (Nexus 71418)
   - Looting Animations (Nexus 77377)
   - Extra OStim animation packs (richer mood names/tags)
 
