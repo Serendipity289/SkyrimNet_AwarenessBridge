@@ -4,6 +4,23 @@ Start-game-enabled quest with a player alias so it reboots after save load.
 No world objects. No Creation Kit required. Does not install OStimNet.
 
 Install this folder as a Vortex mod (ESP + Scripts\*.pex) and Deploy.
+Enable SkyrimNet_AwarenessBridge.esp after SkyrimNet.esp and OStim.esp.
+
+Required (tested Skyrim SE 1.6.1170)
+  - SKSE64 matching the game version
+  - Address Library for SKSE Plugins (Nexus 32444)
+  - powerofthree's Papyrus Extender (Nexus 22854)
+  - SkyrimNet Beta 25.1+ (github.com/MinLL/SkyrimNet-GamePlugin)
+  - OStim Standalone 7.3.4+ (Nexus 98163; tested 7.5.1)
+  - OTracker 2.0.1 (Nexus 108264)
+  - PapyrusUtil SE (Nexus 13048; needed by OTracker 2.x)
+
+Optional (missing only drops that fact)
+  - Wade in Water / Wade in Water Redone (Nexus 35357)
+  - Looting Animations (Nexus 77377)
+  - Extra OStim animation packs (richer mood names/tags)
+
+Not required: SkyUI, OStimNet, CHIM, a sequences pack.
 
 What it sends to SkyrimNet (RegisterPersistentEvent, no dialogue reaction):
 
