@@ -17,8 +17,8 @@ Tested on Skyrim Special Edition **1.6.1170**.
 | [SKSE64](https://skse.silverlock.org/) matching the game version | Papyrus plugin load |
 | [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444) | SKSE plugin common requirement |
 | [powerofthree's Papyrus Extender](https://www.nexusmods.com/skyrimspecialedition/mods/22854) | Followers, swim/underwater/in-water, active animation names |
-| [SkyrimNet](https://github.com/MinLL/SkyrimNet-GamePlugin/releases) (tested **Beta 25.1**) | `RegisterPersistentEvent` / `RegisterShortLivedEvent` |
-| [OStim Standalone](https://www.nexusmods.com/skyrimspecialedition/mods/98163) **7.3.4 or later** (tested **7.5.1**) | Scene start/end, actor list, scene name/tags/actions |
+| [SkyrimNet](https://github.com/MinLL/SkyrimNet-GamePlugin/releases) (tested **Beta 25.1**) and ALL of its requirements. | `RegisterPersistentEvent` / `RegisterShortLivedEvent` |
+| [OStim Standalone](https://www.nexusmods.com/skyrimspecialedition/mods/98163) **7.3.4 or later** (tested **7.5.1**) and ALL of its requirements. | Scene start/end, actor list, scene tags/actions |
 | [OTracker - Thread Actors Recordkeeping](https://www.nexusmods.com/skyrimspecialedition/mods/108264) **2.0.1** | Actor-list fallback; this pack is compiled against it |
 | [PapyrusUtil SE](https://www.nexusmods.com/skyrimspecialedition/mods/13048) | Required by OTracker 2.x |
 
@@ -34,7 +34,7 @@ These are looked up at runtime. Missing them only drops that one fact.
 | [Dynamic Looting and Harvesting Animations](https://www.nexusmods.com/skyrimspecialedition/mods/114547) | Player looting (`LootingAnimations.esp` / `LA_AnimTrigger`) |
 | Extra OStim animation packs | Richer scene names/tags for mood lines |
 
-Not required: SkyUI, OStimNet, CHIM, a sequences pack.
+
 
 ## What it sends to SkyrimNet
 
@@ -57,9 +57,8 @@ Engine facts (the same ones that fire the animation packs):
 - Looting: LootingAnimations `LA_AnimTrigger` (player)
 - Hug / eat / dance / cheer from active animation names  
   e.g. `Taliesin and Lucien Flavius are hugging.`  
-  OStim scenes are not also reported as hugs
-
-Not sent: parkour, horse (SkyrimNet already has mounted), running, sneaking, sitting, distant kills, vanilla HUD subtitles.
+  
+Not sent: parkour, running, sneaking, sitting.
 
 Does not command NPCs. Context only. No DirectNarration. No LLM actions.
 
