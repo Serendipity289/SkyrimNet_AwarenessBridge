@@ -31,7 +31,7 @@ These are looked up at runtime. Missing them only drops that one fact.
 | Mod | Extra fact |
 | --- | --- |
 | [Loki's Wade in Water](https://www.nexusmods.com/skyrimspecialedition/mods/42854) or [Wade in Water Redone](https://www.nexusmods.com/skyrimspecialedition/mods/71418) | Extra wading check (`0xD65`) |
-| [Looting Animations](https://www.nexusmods.com/skyrimspecialedition/mods/77377) | Player looting (`LA_AnimTrigger`) |
+| [Dynamic Looting and Harvesting Animations](https://www.nexusmods.com/skyrimspecialedition/mods/114547) | Player looting (`LootingAnimations.esp` / `LA_AnimTrigger`) |
 | Extra OStim animation packs | Richer scene names/tags for mood lines |
 
 Not required: SkyUI, OStimNet, CHIM, a sequences pack.
