@@ -56,7 +56,7 @@ Engine facts (the same ones that fire the animation packs):
 - Cold / shield-in-rain: EVG weather facts
 - Looting: LootingAnimations `LA_AnimTrigger` (player)
 - Hug / eat / dance / cheer from active animation names  
-  e.g. `Taliesin and Sarah Stormbringer are hugging.`  
+  e.g. `Taliesin and Lucien Flavius are hugging.`  
   OStim scenes are not also reported as hugs
 
 Not sent: parkour, horse (SkyrimNet already has mounted), running, sneaking, sitting, distant kills, vanilla HUD subtitles.
