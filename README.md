@@ -1,7 +1,7 @@
 # SkyrimNet Awareness Bridge
 
 Start-game-enabled quest with a player alias so it reboots after save load.  
-No world objects. No Creation Kit required. Does not install OStimNet.
+No world objects. No Creation Kit required.
 
 Install this folder as a Vortex mod (`ESP` + `Scripts\*.pex`) and Deploy.  
 Enable `SkyrimNet_AwarenessBridge.esp` after `SkyrimNet.esp` and `OStim.esp`.
