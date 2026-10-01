@@ -1,0 +1,8 @@
+SkyrimNet Awareness Bridge
+==========================
+ESP and PEX are already built. Bethesda Creation Kit is not required.
+
+Vortex: install this folder (or a zip of it) as a mod and Deploy.
+Enable SkyrimNet_AwarenessBridge.esp after SkyrimNet.esp.
+
+Events: see README.md.
