@@ -1,21 +1,37 @@
 Scriptname SkyrimNet_AwarenessBridge extends Quest
-{Nearby OStim plus engine facts. Context only. Reboots on save load. No parkour.}
+{Nearby OStim plus engine facts. Unprompted comment + body on confirmed edges.}
 
 float Property MaxDistance = 5000.0 Auto
 float Property PulseSeconds = 10.0 Auto
 float Property HugDistance = 250.0 Auto
+float Property ReactCooldown = 45.0 Auto
 
 Actor[] _lastActors
 String[] _confirmedLoc
 String[] _pendingLoc
 int[] _pendingHits
 String[] _idleLatch
+float[] _lastX
+float[] _lastY
+float[] _lastZ
+int[] _hasPos
+Form[] _bundleItem
 int _lastCount = 0
 Spell _wadeWaistSpell
 GlobalVariable _lootTrigger
+Form _nffIgnoreToken
 bool _arraysReady = false
 bool _otrackerLoaded = false
+bool _clamberLoaded = false
 int _endedThread = -1
+Actor[] _ostimBusy
+int _ostimBusyCount = 0
+float _lastReactTime = -1000.0
+string _lastReactKey = ""
+Actor _reactSpeaker
+string _reactStance = ""
+string _reactFact = ""
+string _reactAction = ""
 
 int LIVE_SCENE_MS = 900000
 int LIVE_END_MS = 60000
@@ -31,7 +47,9 @@ Function Boot()
     UnregisterForAllModEvents()
     ResolveWadeSpell()
     ResolveLootTrigger()
+    ResolveNffToken()
     _otrackerLoaded = (Game.GetModByName("OTracker.esp") != 255)
+    _clamberLoaded = (Game.GetModByName("evgCLAMBER.esp") != 255)
     _endedThread = -1
     RegisterForModEvent("ostim_thread_start", "OnOStimStart")
     RegisterForModEvent("ostim_thread_end", "OnOStimThreadEnd")
@@ -39,20 +57,39 @@ Function Boot()
         RegisterForModEvent("otracker_thread_start", "OnOStimStart")
     endif
     RegisterForSingleUpdate(2.0)
+    SkyrimNetApi.RegisterDecorator("get_awareness_reaction", "SkyrimNet_AwarenessBridgeLib", "GetAwarenessReaction")
+    SkyrimNetApi.RegisterAction("Bundle_Up", "When cold, put on a hood, cloak, scarf, cape, poncho, gloves, or hood from your inventory.", \
+        "SkyrimNet_AwarenessBridgeLib", "BundleUp_IsEligible", \
+        "SkyrimNet_AwarenessBridgeLib", "BundleUp_Execute", \
+        "", "PAPYRUS", \
+        1, "")
+    SkyrimNetApi.RegisterAction("Unbundle", "When warm, take off the warmth item from BundleUp.", \
+        "SkyrimNet_AwarenessBridgeLib", "Unbundle_IsEligible", \
+        "SkyrimNet_AwarenessBridgeLib", "Unbundle_Execute", \
+        "", "PAPYRUS", \
+        1, "")
     Debug.Trace("SkyrimNet_AwarenessBridge boot")
 EndFunction
 
 Function EnsureArrays()
-    if _arraysReady
-        return
+    if !_arraysReady
+        _lastActors = new Actor[16]
+        _confirmedLoc = new String[16]
+        _pendingLoc = new String[16]
+        _pendingHits = new int[16]
+        _idleLatch = new String[16]
+        _ostimBusy = new Actor[16]
+        _ostimBusyCount = 0
+        _lastCount = 0
+        _arraysReady = true
     endif
-    _lastActors = new Actor[16]
-    _confirmedLoc = new String[16]
-    _pendingLoc = new String[16]
-    _pendingHits = new int[16]
-    _idleLatch = new String[16]
-    _lastCount = 0
-    _arraysReady = true
+    if _lastX == none
+        _lastX = new float[16]
+        _lastY = new float[16]
+        _lastZ = new float[16]
+        _hasPos = new int[16]
+        _bundleItem = new Form[16]
+    endif
 EndFunction
 
 Function ResolveWadeSpell()
@@ -70,6 +107,13 @@ Function ResolveLootTrigger()
         return
     endif
     _lootTrigger = Game.GetFormFromFile(0x801, "LootingAnimations.esp") as GlobalVariable
+EndFunction
+
+Function ResolveNffToken()
+    if _nffIgnoreToken != none
+        return
+    endif
+    _nffIgnoreToken = Game.GetFormFromFile(0x1CFC8D, "nwsFollowerFramework.esp")
 EndFunction
 
 Function SendInfo(string content, Actor originator, Actor target)
@@ -149,8 +193,9 @@ Function ReportOStimMoment(int threadID, Actor[] participants, string json, bool
     endif
     string kind = MoodKind(sceneId)
     string names = BuildNamesString(participants)
-    string nearby = NearbyLine(names, kind, ending)
     Actor originator = participants[0]
+    string place = PlaceSuffix(originator, true)
+    string nearby = NearbyLine(names, kind, ending, place)
     Actor target = none
     if participants.Length > 1
         target = participants[1]
@@ -161,10 +206,16 @@ Function ReportOStimMoment(int threadID, Actor[] participants, string json, bool
     endif
     SendInfo(nearby, originator, target)
     SetLive("sn_ostim_" + threadID, nearby, originator, target, ttl)
-    SendPersonalMoods(participants, kind, ending, ttl)
+    SendPersonalMoods(participants, kind, ending, ttl, place)
+    if ending
+        ClearOStimBusy()
+    else
+        MarkOStimBusy(participants)
+        ReactToFact("ostim:" + threadID, nearby, "ostim", originator, target)
+    endif
 EndFunction
 
-Function SendPersonalMoods(Actor[] participants, string kind, bool ending, int ttl)
+Function SendPersonalMoods(Actor[] participants, string kind, bool ending, int ttl, string place)
     int i = 0
     while i < participants.Length
         Actor me = participants[i]
@@ -175,7 +226,7 @@ Function SendPersonalMoods(Actor[] participants, string kind, bool ending, int t
             other = participants[0]
         endif
         if me && other
-            string line = PersonalLine(me, other, kind, ending)
+            string line = PersonalLine(me, other, kind, ending, place)
             SendInfo(line, me, other)
             SetLive("sn_ostim_a_" + me.GetFormID(), line, me, other, ttl)
         endif
@@ -183,72 +234,72 @@ Function SendPersonalMoods(Actor[] participants, string kind, bool ending, int t
     endwhile
 EndFunction
 
-string Function NearbyLine(string names, string kind, bool ending)
+string Function NearbyLine(string names, string kind, bool ending, string place)
     if ending
         if kind == "kiss"
-            return names + " just shared a kiss nearby."
+            return names + " just shared a kiss" + place + "."
         elseif kind == "embrace"
-            return names + " just shared a close embrace nearby."
+            return names + " just shared a close embrace" + place + "."
         elseif kind == "cuddle"
-            return names + " just finished cuddling nearby."
+            return names + " just finished cuddling" + place + "."
         elseif kind == "dance"
-            return names + " just finished a close dance nearby."
+            return names + " just finished a close dance" + place + "."
         elseif kind == "tender"
-            return names + " just shared a tender moment nearby."
+            return names + " just shared a tender moment" + place + "."
         elseif kind == "heated"
-            return names + " just finished a heated, intimate encounter nearby."
+            return names + " just finished a heated, intimate encounter" + place + "."
         endif
-        return names + " just finished an intimate encounter nearby."
+        return names + " just finished an intimate encounter" + place + "."
     endif
     if kind == "kiss"
-        return names + " are sharing a kiss nearby."
+        return names + " are sharing a kiss" + place + "."
     elseif kind == "embrace"
-        return names + " are sharing a close embrace nearby."
+        return names + " are sharing a close embrace" + place + "."
     elseif kind == "cuddle"
-        return names + " are cuddled close nearby."
+        return names + " are cuddled close" + place + "."
     elseif kind == "dance"
-        return names + " are dancing close nearby."
+        return names + " are dancing close" + place + "."
     elseif kind == "tender"
-        return names + " are sharing a tender moment nearby."
+        return names + " are sharing a tender moment" + place + "."
     elseif kind == "heated"
-        return names + " are sharing a heated, intimate encounter nearby."
+        return names + " are sharing a heated, intimate encounter" + place + "."
     endif
-    return names + " are sharing an intimate encounter nearby."
+    return names + " are sharing an intimate encounter" + place + "."
 EndFunction
 
-string Function PersonalLine(Actor me, Actor other, string kind, bool ending)
+string Function PersonalLine(Actor me, Actor other, string kind, bool ending, string place)
     string a = me.GetDisplayName()
     string b = other.GetDisplayName()
     if ending
         if kind == "kiss"
-            return a + " just shared a kiss with " + b + "."
+            return a + " just shared a kiss with " + b + place + "."
         elseif kind == "embrace"
-            return a + " just held " + b + " in a close embrace."
+            return a + " just held " + b + " in a close embrace" + place + "."
         elseif kind == "cuddle"
-            return a + " just cuddled close with " + b + "."
+            return a + " just cuddled close with " + b + place + "."
         elseif kind == "dance"
-            return a + " just danced close with " + b + "."
+            return a + " just danced close with " + b + place + "."
         elseif kind == "tender"
-            return a + " just shared a tender moment with " + b + "."
+            return a + " just shared a tender moment with " + b + place + "."
         elseif kind == "heated"
-            return a + " just shared a heated, intimate moment with " + b + "."
+            return a + " just shared a heated, intimate moment with " + b + place + "."
         endif
-        return a + " just shared a private moment with " + b + "."
+        return a + " just shared a private moment with " + b + place + "."
     endif
     if kind == "kiss"
-        return a + " is sharing a kiss with " + b + "."
+        return a + " is sharing a kiss with " + b + place + "."
     elseif kind == "embrace"
-        return a + " is holding " + b + " in a close embrace."
+        return a + " is holding " + b + " in a close embrace" + place + "."
     elseif kind == "cuddle"
-        return a + " is cuddled close with " + b + "."
+        return a + " is cuddled close with " + b + place + "."
     elseif kind == "dance"
-        return a + " is dancing close with " + b + "."
+        return a + " is dancing close with " + b + place + "."
     elseif kind == "tender"
-        return a + " is sharing a tender moment with " + b + "."
+        return a + " is sharing a tender moment with " + b + place + "."
     elseif kind == "heated"
-        return a + " is in a heated, intimate moment with " + b + "."
+        return a + " is in a heated, intimate moment with " + b + place + "."
     endif
-    return a + " is close with " + b + " in a private moment."
+    return a + " is close with " + b + " in a private moment" + place + "."
 EndFunction
 
 string Function MoodKind(string sceneId)
@@ -346,11 +397,73 @@ Function PulseActorStates()
     endwhile
 EndFunction
 
-string Function LocomotionState(Actor npc)
+string Function LocomotionState(Actor npc, int slot)
     if npc.IsSwimming() || PO3_SKSEFunctions.IsActorUnderwater(npc)
+        RememberPos(npc, slot)
         return "swimming"
     endif
+    return SlopeState(npc, slot)
+EndFunction
+
+string Function SlopeFromAnim(string anim)
+    if anim == ""
+        return ""
+    endif
+    if AnimHas(anim, "steepDOWN") || AnimHas(anim, "fRDOWN") || AnimHas(anim, "mRDOWN") || AnimHas(anim, "fWDOWN") || AnimHas(anim, "mWDOWN")
+        return "scrambling down a steep slope"
+    endif
+    if AnimHas(anim, "fRUP") || AnimHas(anim, "mRUP") || AnimHas(anim, "fWUP") || AnimHas(anim, "mWUP")
+        return "climbing a steep slope"
+    endif
     return ""
+EndFunction
+
+Function RememberPos(Actor npc, int slot)
+    if slot < 0 || _lastX == none
+        return
+    endif
+    RememberPosAt(slot, npc.GetPositionX(), npc.GetPositionY(), npc.GetPositionZ())
+EndFunction
+
+Function RememberPosAt(int slot, float x, float y, float z)
+    _lastX[slot] = x
+    _lastY[slot] = y
+    _lastZ[slot] = z
+    _hasPos[slot] = 1
+EndFunction
+
+string Function SlopeState(Actor npc, int slot)
+    if !_clamberLoaded || slot < 0 || _lastX == none
+        return ""
+    endif
+    if npc.IsOnMount()
+        RememberPos(npc, slot)
+        return ""
+    endif
+    string fromAnim = SlopeFromAnim(PO3_SKSEFunctions.GetActiveGamebryoAnimation(npc))
+    float x = npc.GetPositionX()
+    float y = npc.GetPositionY()
+    float z = npc.GetPositionZ()
+    string fromDelta = ""
+    if _hasPos[slot] != 0
+        float dx = x - _lastX[slot]
+        float dy = y - _lastY[slot]
+        float dz = z - _lastZ[slot]
+        float horiz = Math.sqrt(dx * dx + dy * dy)
+        if horiz >= 80.0 && horiz <= 6000.0
+            float slope = dz / horiz
+            if slope >= 0.35 && slope <= 2.0
+                fromDelta = "climbing a steep slope"
+            elseif slope <= -0.35 && slope >= -2.0
+                fromDelta = "scrambling down a steep slope"
+            endif
+        endif
+    endif
+    RememberPosAt(slot, x, y, z)
+    if fromAnim != ""
+        return fromAnim
+    endif
+    return fromDelta
 EndFunction
 
 Function UpdateLocomotion(Actor npc)
@@ -358,7 +471,7 @@ Function UpdateLocomotion(Actor npc)
     if slot < 0
         return
     endif
-    string loc = LocomotionState(npc)
+    string loc = LocomotionState(npc, slot)
     if loc == _pendingLoc[slot]
         _pendingHits[slot] = _pendingHits[slot] + 1
     else
@@ -378,6 +491,7 @@ Function UpdateLocomotion(Actor npc)
         string sentence = npc.GetDisplayName() + " is " + loc + "."
         SendInfo(sentence, npc, None)
         SetLive(liveId, sentence, npc, None, LIVE_STATE_MS)
+        ReactToFact("loc:" + npc.GetFormID() + ":" + loc, sentence, loc, npc, None)
     elseif prev != ""
         string sentence = npc.GetDisplayName() + " is no longer " + prev + "."
         SendInfo(sentence, npc, None)
@@ -392,7 +506,13 @@ Function UpdateOneShotIdle(Actor npc, Actor[] teammates)
     endif
     string kind = IdleKind(npc)
     if kind == ""
+        string prevIdle = _idleLatch[slot]
         _idleLatch[slot] = ""
+        if prevIdle == "huddling in the cold"
+            string sentence = npc.GetDisplayName() + " is no longer huddling in the cold."
+            SendInfo(sentence, npc, None)
+            SetLive("sn_idle_" + npc.GetFormID(), sentence, npc, None, LIVE_END_MS)
+        endif
         return
     endif
     if kind == _idleLatch[slot]
@@ -406,16 +526,19 @@ Function UpdateOneShotIdle(Actor npc, Actor[] teammates)
             string sentence = npc.GetDisplayName() + " and " + other.GetDisplayName() + " are hugging."
             SendInfo(sentence, npc, other)
             SetLive(liveId, sentence, npc, other, LIVE_STATE_MS)
+            ReactToFact("idle:hug", sentence, "hugging", npc, other)
         else
             string sentence = npc.GetDisplayName() + " is hugging someone."
             SendInfo(sentence, npc, None)
             SetLive(liveId, sentence, npc, None, LIVE_STATE_MS)
+            ReactToFact("idle:hug", sentence, "hugging", npc, None)
         endif
         return
     endif
     string line = npc.GetDisplayName() + " is " + kind + "."
     SendInfo(line, npc, None)
     SetLive(liveId, line, npc, None, LIVE_STATE_MS)
+    ReactToFact("idle:" + npc.GetFormID() + ":" + kind, line, kind, npc, None)
 EndFunction
 
 string Function IdleKind(Actor npc)
@@ -526,6 +649,432 @@ int Function EnsureSlot(Actor npc)
     _pendingLoc[slot] = ""
     _pendingHits[slot] = 0
     _idleLatch[slot] = ""
+    if _lastX != none
+        _lastX[slot] = 0.0
+        _lastY[slot] = 0.0
+        _lastZ[slot] = 0.0
+        _hasPos[slot] = 0
+        _bundleItem[slot] = none
+    endif
     _lastCount += 1
     return slot
+EndFunction
+
+string Function LocationName(Actor a)
+    if !a
+        return ""
+    endif
+    Location loc = a.GetCurrentLocation()
+    if loc
+        string n = loc.GetName()
+        if n != ""
+            return n
+        endif
+    endif
+    Cell c = a.GetParentCell()
+    if c
+        return c.GetName()
+    endif
+    return ""
+EndFunction
+
+string Function PlaceSuffix(Actor a, bool fallbackNearby)
+    string n = LocationName(a)
+    if n != ""
+        return " at " + n
+    endif
+    if fallbackNearby
+        return " nearby"
+    endif
+    return ""
+EndFunction
+
+Function MarkOStimBusy(Actor[] participants)
+    EnsureArrays()
+    _ostimBusyCount = 0
+    int i = 0
+    while i < participants.Length && _ostimBusyCount < 16
+        if participants[i]
+            _ostimBusy[_ostimBusyCount] = participants[i]
+            _ostimBusyCount += 1
+        endif
+        i += 1
+    endwhile
+EndFunction
+
+Function ClearOStimBusy()
+    _ostimBusyCount = 0
+EndFunction
+
+bool Function IsOStimBusy(Actor a)
+    if !a
+        return false
+    endif
+    int i = 0
+    while i < _ostimBusyCount
+        if _ostimBusy[i] == a
+            return true
+        endif
+        i += 1
+    endwhile
+    return false
+EndFunction
+
+Actor Function PickSpeaker(Actor originator)
+    Actor player = Game.GetPlayer()
+    if !player
+        return none
+    endif
+    Actor[] teammates = PO3_SKSEFunctions.GetPlayerFollowers()
+    if teammates == none
+        return none
+    endif
+    Actor best = none
+    float bestD = MaxDistance
+    int i = 0
+    while i < teammates.Length
+        Actor n = teammates[i]
+        if n && n != originator && n != player && !n.IsDead() && !IsOStimBusy(n)
+            float d = n.GetDistance(player)
+            if d < bestD
+                best = n
+                bestD = d
+            endif
+        endif
+        i += 1
+    endwhile
+    return best
+EndFunction
+
+string Function StanceFor(string kind)
+    if kind == "ostim" || kind == "heated"
+        return "look_away"
+    endif
+    if kind == "injured" || kind == "exhausted" || kind == "clutching their head"
+        return "help"
+    endif
+    if kind == "looting"
+        return "comment"
+    endif
+    return "comment"
+EndFunction
+
+bool Function ShouldKeepFollow(Actor npc)
+    if !npc
+        return false
+    endif
+    Actor player = Game.GetPlayer()
+    if player && npc == player
+        return false
+    endif
+    if npc.IsOnMount()
+        return true
+    endif
+    if SkyrimNetApi.HasPackage(npc, "FollowPlayer") != 0
+        return true
+    endif
+    if npc.IsPlayerTeammate()
+        return true
+    endif
+    Faction companion = Game.GetFormFromFile(0x084D1B, "Skyrim.esm") as Faction
+    if companion && npc.IsInFaction(companion)
+        return true
+    endif
+    ResolveNffToken()
+    if _nffIgnoreToken && npc.GetItemCount(_nffIgnoreToken) > 0
+        return true
+    endif
+    return false
+EndFunction
+
+bool Function IsFollowMutatingAction(string name)
+    if name == ""
+        return false
+    endif
+    if name == "Wait" || name == "WaitHere" || name == "WAITHERE" || name == "Sit" || name == "SIT"
+        return true
+    endif
+    if name == "Follow" || name == "FOLLOW" || name == "AccompanyTarget" || name == "ACCOMPANYTARGET"
+        return true
+    endif
+    if name == "StopAccompanying" || name == "STOPACCOMPANYING" || name == "PauseFollow" || name == "StopFollow" || name == "StartFollow"
+        return true
+    endif
+    return false
+EndFunction
+
+string Function ActionFor(string kind, Actor speaker)
+    if ShouldKeepFollow(speaker)
+        return ""
+    endif
+    if kind == "eating" || kind == "dancing" || kind == "cheering"
+        return FirstRegistered("Sit", "Wait", "")
+    endif
+    if kind == "climbing a steep slope" || kind == "scrambling down a steep slope"
+        return ""
+    endif
+    if kind == "swimming" || kind == "wading waist-deep in water"
+        return FirstRegistered("Wait", "Follow", "")
+    endif
+    return FirstRegistered("Wait", "Sit", "")
+EndFunction
+
+string Function FirstRegistered(string a, string b, string c)
+    if a != "" && SkyrimNetApi.IsActionRegistered(a)
+        return a
+    endif
+    if b != "" && SkyrimNetApi.IsActionRegistered(b)
+        return b
+    endif
+    if c != "" && SkyrimNetApi.IsActionRegistered(c)
+        return c
+    endif
+    return ""
+EndFunction
+
+Function ReactToFact(string factKey, string fact, string kind, Actor originator, Actor target)
+    if factKey == "" || fact == ""
+        return
+    endif
+    float now = Utility.GetCurrentRealTime()
+    if factKey == _lastReactKey && (now - _lastReactTime) < ReactCooldown
+        return
+    endif
+    Actor speaker = PickSpeaker(originator)
+    if !speaker
+        return
+    endif
+    _lastReactKey = factKey
+    _lastReactTime = now
+    _reactSpeaker = speaker
+    _reactFact = fact
+    _reactStance = StanceFor(kind)
+    _reactAction = ActionFor(kind, speaker)
+    if _reactAction != "" && !IsFollowMutatingAction(_reactAction)
+        SkyrimNetApi.ExecuteAction(_reactAction, speaker, "{}")
+    else
+        _reactAction = ""
+    endif
+    SkyrimNetApi.DirectNarration("", speaker, Game.GetPlayer())
+EndFunction
+
+string Function ReactionJson(Actor akActor)
+    if !akActor
+        return "{}"
+    endif
+    bool keep = ShouldKeepFollow(akActor)
+    bool reacting = (akActor == _reactSpeaker && _reactStance != "")
+    if !keep && !reacting
+        return "{}"
+    endif
+    string json = "{"
+    if reacting
+        json += "\"stance\":\"" + _reactStance + "\",\"fact\":\"" + _reactFact + "\",\"action\":\"" + _reactAction + "\""
+        if keep
+            json += ","
+        endif
+    endif
+    if keep
+        json += "\"keep_follow\":true"
+    endif
+    json += "}"
+    return json
+EndFunction
+
+string Function LowerChar(string c)
+    string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    int idx = StringUtil.Find(upper, c)
+    if idx < 0
+        return c
+    endif
+    return StringUtil.GetNthChar("abcdefghijklmnopqrstuvwxyz", idx)
+EndFunction
+
+string Function LowerString(string s)
+    string out = ""
+    int n = StringUtil.GetLength(s)
+    int i = 0
+    while i < n
+        out += LowerChar(StringUtil.GetNthChar(s, i))
+        i += 1
+    endwhile
+    return out
+EndFunction
+
+bool Function WarmthText(string blob)
+    string t = LowerString(blob)
+    if StringUtil.Find(t, "fur") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "hood") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "cloak") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "scarf") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "cape") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "poncho") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "glove") >= 0
+        return true
+    endif
+    if StringUtil.Find(t, "mittens") >= 0
+        return true
+    endif
+    return false
+EndFunction
+
+bool Function IsWarmthItem(Form item)
+    Armor arm = item as Armor
+    if !arm
+        return false
+    endif
+    if Math.LogicalAnd(arm.GetSlotMask(), 4) != 0
+        return false
+    endif
+    return WarmthText(arm.GetName() + " " + PO3_SKSEFunctions.GetDescription(arm))
+EndFunction
+
+Form Function FindWarmthUnworn(Actor npc)
+    Form[] items = PO3_SKSEFunctions.AddItemsOfTypeToArray(npc, 26, true, false, false)
+    if items == none
+        return none
+    endif
+    int i = 0
+    while i < items.Length
+        if IsWarmthItem(items[i])
+            return items[i]
+        endif
+        i += 1
+    endwhile
+    return none
+EndFunction
+
+bool Function IsColdForBundle(Actor npc)
+    if !npc || npc.IsInInterior()
+        return false
+    endif
+    Weather w = Weather.GetCurrentWeather()
+    if w && w.GetClassification() == 4
+        return true
+    endif
+    return false
+EndFunction
+
+bool Function IsWarmForUnbundle(Actor npc)
+    if !npc
+        return false
+    endif
+    if npc.IsInInterior()
+        return true
+    endif
+    Weather w = Weather.GetCurrentWeather()
+    if !w
+        return true
+    endif
+    return w.GetClassification() != 4
+EndFunction
+
+int Function BundleSlot(Actor npc)
+    if !npc
+        return -1
+    endif
+    return EnsureSlot(npc)
+EndFunction
+
+bool Function BundleUpEligible(Actor npc)
+    if !npc || npc.IsDead()
+        return false
+    endif
+    Actor player = Game.GetPlayer()
+    if player && npc == player
+        return false
+    endif
+    if IsOStimBusy(npc)
+        return false
+    endif
+    if !IsColdForBundle(npc)
+        return false
+    endif
+    int slot = BundleSlot(npc)
+    if slot < 0
+        return false
+    endif
+    Form worn = _bundleItem[slot]
+    if worn && npc.IsEquipped(worn)
+        return false
+    endif
+    if worn
+        _bundleItem[slot] = none
+    endif
+    return FindWarmthUnworn(npc) != none
+EndFunction
+
+Function BundleUpExecute(Actor npc)
+    if !npc || npc.IsDead()
+        return
+    endif
+    int slot = BundleSlot(npc)
+    if slot < 0
+        return
+    endif
+    Form worn = _bundleItem[slot]
+    if worn && npc.IsEquipped(worn)
+        return
+    endif
+    Form item = FindWarmthUnworn(npc)
+    if !item
+        return
+    endif
+    npc.EquipItem(item, false, true)
+    _bundleItem[slot] = item
+    SendInfo(npc.GetDisplayName() + " puts on " + item.GetName() + ".", npc, None)
+EndFunction
+
+bool Function UnbundleEligible(Actor npc)
+    if !npc || npc.IsDead()
+        return false
+    endif
+    Actor player = Game.GetPlayer()
+    if player && npc == player
+        return false
+    endif
+    if !IsWarmForUnbundle(npc)
+        return false
+    endif
+    int slot = BundleSlot(npc)
+    if slot < 0
+        return false
+    endif
+    Form worn = _bundleItem[slot]
+    if !worn
+        return false
+    endif
+    if !npc.IsEquipped(worn)
+        _bundleItem[slot] = none
+        return false
+    endif
+    return true
+EndFunction
+
+Function UnbundleExecute(Actor npc)
+    if !npc
+        return
+    endif
+    int slot = BundleSlot(npc)
+    if slot < 0
+        return
+    endif
+    Form worn = _bundleItem[slot]
+    if worn && npc.IsEquipped(worn)
+        npc.UnequipItem(worn, false, true)
+        SendInfo(npc.GetDisplayName() + " takes off " + worn.GetName() + ".", npc, None)
+    endif
+    _bundleItem[slot] = none
 EndFunction

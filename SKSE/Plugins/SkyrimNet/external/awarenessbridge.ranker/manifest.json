@@ -1,0 +1,10 @@
+{
+  "id": "awarenessbridge.ranker",
+  "type": "bundle",
+  "title": "Awareness Bridge Reactions",
+  "tagline": "Nearby companions comment on what they just saw.",
+  "description": "Prompt block that tells the speaking NPC they noticed an AwarenessBridge fact, with a stance (comment, help, complain, look_away). Pairs with DirectNarration from the Papyrus quest.",
+  "author": "awarenessbridge",
+  "version": "1.1.0",
+  "min_skyrimnet_version": "0.25.0"
+}

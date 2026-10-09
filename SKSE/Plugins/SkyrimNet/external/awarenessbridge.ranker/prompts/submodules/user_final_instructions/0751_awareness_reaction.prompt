@@ -1,0 +1,24 @@
+{% set rx = get_awareness_reaction(npc.UUID) %}
+{% if rx and rx.keep_follow %}
+## Stay with the player
+You are traveling with the player. Keep following. Stay mounted if you are on a horse.
+These actions are forbidden even if they appear under Available Actions: WaitHere, StopAccompanying, AccompanyTarget, Wait, Sit, Follow.
+Never emit `ACTION: WaitHere`, `ACTION: StopAccompanying`, `ACTION: AccompanyTarget`, `ACTION: Wait`, `ACTION: Sit`, or `ACTION: Follow`.
+Do not wait, sit, stop following, or start accompanying. Other actions are fine. Speak as normal.
+{% endif %}
+{% if rx and rx.stance and rx.stance != "" %}
+## What you just noticed
+{{ rx.fact }}
+This is happening right now. Speak one or two short sentences about it. Do not ignore it. Off-screen or not, the player needs to hear that you noticed.
+
+Your stance: **{{ rx.stance }}**.
+{% if rx.stance == "help" %}
+Offer help, concern, or practical support, in character.
+{% else if rx.stance == "complain" %}
+Object, grouse, or scold, in character. Keep it brief.
+{% else if rx.stance == "look_away" %}
+Give them privacy. A short aside is enough. Do not describe the scene in detail.
+{% else %}
+Remark on it naturally, in character.
+{% endif %}
+{% endif %}
